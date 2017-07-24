@@ -1,0 +1,422 @@
+package org.firstinspires.ftc.gameday2;
+
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.ColorSensor;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.I2cDevice;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.util.Range;
+import com.qualcomm.robotcore.util.RobotLog;
+
+import org.firstinspires.ftc.robotcore.external.ClassFactory;
+import org.firstinspires.ftc.robotcore.external.matrices.OpenGLMatrix;
+import org.firstinspires.ftc.robotcore.external.matrices.VectorF;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesOrder;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesReference;
+import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaLocalizer;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackable;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackableDefaultListener;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackables;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * This is NOT an opmode.
+ * <p>
+ * This class can be used to define all the specific hardware for a single robot.
+ * In this case that robot is a Runnerbot, a developed AndyMark Tile Runner.
+ * <p>
+ * This hardware class assumes motor, sensor and servo names have been configured
+ * in the robot configuration file.
+ */
+
+public class Runnerbot {
+    /* Public OpMode members. */
+    private static final double COUNTS_PER_MOTOR_REV = 1120.0; // use 1440 for TETRIX Motor Encoder
+    private static final double DRIVE_GEAR_REDUCTION = 1.0;    // 2.0 for Pushbot, < 1.0 if geared UP
+    private static final double WHEEL_DIAMETER_INCHES = 4.04;   // calibrated
+    public static final double DRIVEWHEEL_SEPARATION = 15.4;  // calibrated inches
+    public static double BOT_WIDTH = 17.8 * 25.4;  // Big Tile Runner robot
+    public static double BOT_LENGTH = 18.0 * 25.4;  // Big Tile Runner robot
+    private static final double COUNTS_PER_INCH = (COUNTS_PER_MOTOR_REV * DRIVE_GEAR_REDUCTION) /
+            (WHEEL_DIAMETER_INCHES * Math.PI);
+    public static final double CAMERA_FROM_FRONT = 244.0; // Millimeters. Was 305.0.
+    public static final double TURN_SPEED = 0.5;
+    public static final double STRAIGHT_SPEED = 0.6;
+    public double sweepSpeed = 1.00;
+    public boolean sweepToggle = false;
+    public int sweepToggleState = 0;
+    public DcMotor leftMotor = null;
+    public DcMotor rightMotor = null;
+    public DcMotor sweepMotor = null;
+    public Servo buttonPush = null; // beacon button pusher
+    public ColorSensor color = null;
+    public I2cDevice range = null;
+    private LinearOpMode currentOpMode;
+    private VVField playingOnField;
+    public OpenGLMatrix lastLocation = null;
+    public double knownX;
+    public double knownY;
+    public double knownHeading;
+    public boolean seeking = false;
+    public List<VuforiaTrackable> allTrackables = null;
+
+    /* local robot members. */
+    HardwareMap hwMap = null;
+
+    /* Constructor */
+    public Runnerbot(LinearOpMode linearOpMode) {
+        currentOpMode = linearOpMode;
+    }
+    public Runnerbot() {};
+
+    /***********************************************************************************
+     * Robot initialization methods.
+     ***********************************************************************************/
+    /* Initialize standard drive train equipment. */
+    public void initDrive (HardwareMap ahwMap) {
+        // Save reference to Hardware map
+        hwMap = ahwMap;
+
+        // Define and Initialize Motors
+        leftMotor = hwMap.dcMotor.get("leftMotor");
+        rightMotor = hwMap.dcMotor.get("rightMotor");
+
+        leftMotor.setDirection(DcMotor.Direction.REVERSE); // Tetrix motor: FORWARD
+        rightMotor.setDirection(DcMotor.Direction.FORWARD);// Tetrix motor: REVERSE
+        leftMotor.setPower(0);
+        rightMotor.setPower(0);
+
+        // May want to use RUN_USING_ENCODERS if encoders are installed.
+        // Generally, Autonomous modes will run encoded, and Driver (TeleOp) modes
+        //   will run unencoded.
+        leftMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        rightMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+    }
+
+    /*   Initialize drive equipment to use encoders.   */
+    public void initEncodedDrive() {
+        // Zero the encoder counts targets. Side effect is to remove
+        //   power, but we will do that explicitly.
+        leftMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        rightMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        leftMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        rightMotor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+    }
+
+    /*  Set up servos and sensors   */
+    public void initSweeper () {
+        sweepMotor = hwMap.dcMotor.get("sweepMotor");
+        sweepMotor.setPower(0);
+    }
+
+    public void initBeaconPusher () {
+        buttonPush = hwMap.servo.get("buttonPush");
+    }
+
+    /***********************************************************************************
+     * Robot movement members.
+     ***********************************************************************************/
+
+    /*
+     *  Do a relative move, based on encoder counts.
+     *  Move will stop if any of two conditions occur:
+     *  1) One or the other drive motor gets to the desired position
+     *  2) Driver stops the opmode running.
+    */
+    public void encoderDrive(double leftSpeed, double rightSpeed,
+                             double leftInches, double rightInches) {
+        int newLeftTarget;
+        int newRightTarget;
+
+        // Determine new target position, and pass to motor controller
+        newLeftTarget = leftMotor.getCurrentPosition() + (int) (leftInches * COUNTS_PER_INCH);
+        newRightTarget = rightMotor.getCurrentPosition() + (int) (rightInches * COUNTS_PER_INCH);
+        leftMotor.setTargetPosition(newLeftTarget);
+        rightMotor.setTargetPosition(newRightTarget);
+
+        // Turn On RUN_TO_POSITION
+        leftMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        rightMotor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+        // Go!
+        leftMotor.setPower(Math.abs(leftSpeed));
+        rightMotor.setPower(Math.abs(rightSpeed));
+
+        // keep looping while we are still active, and both motors are running.
+        while (leftMotor.isBusy() && rightMotor.isBusy() && currentOpMode.opModeIsActive()) {
+            // just wait
+        }
+    }
+
+    /*  Turning movements. All angles are in radians. */
+    //  Turn at speed through an angle, with a given radius.
+    public void turnAngleRadiusDrive(double speed, double angle, double radius) {
+
+        // One or both of these arcs could be negative.
+        double leftRadius = radius - DRIVEWHEEL_SEPARATION / 2.0;
+        double leftArc = leftRadius * angle;
+        double rightRadius = radius + DRIVEWHEEL_SEPARATION / 2.0;
+        double rightArc = rightRadius * angle;
+        // One or both of these wheel targets or speeds could be negative.
+        // ** Need to clip and scale speeds here.
+        double leftSpeed = speed * leftRadius / radius;
+        double rightSpeed = speed * rightRadius / radius;
+
+        encoderDrive(leftSpeed, rightSpeed, leftArc, rightArc);
+        // Degenerate cases: angle = 0, R = 0, R = d/2, R = +infinity
+        // (straight drive).
+    }
+
+    //    Wrapper for turnAngleRadius
+    // ** make this a wrapper for encoderDrive instead.
+    public void turnArcRadiusDrive(double speed, double arc, double radius) {
+        double targetAngle = arc / radius;
+        turnAngleRadiusDrive(speed, targetAngle, radius);
+    }
+
+    public void straightDrive(double speed, double inches) {
+        // Wheels may be slightly different in diameter. Symptom: drives slightly
+        // curved. Calibrate to determine this.
+        encoderDrive(speed, speed, inches, inches);
+    }
+
+    public void goStraight(double speed) {
+        leftMotor.setPower(speed);
+        rightMotor.setPower(speed);
+    }
+
+    //  Begin a left turn at speed, sharpness of turn decided by ratio.
+    //    1:  go straight.
+    //    0:  turn axis is left wheel.
+    //    -1: turn axis is between drive wheels. Robot turns on own axis.
+    public void turnLeft(double speed, double ratio) {
+        Range.clip(ratio, -1.0, 1.0);
+        leftMotor.setPower(speed * ratio);
+        rightMotor.setPower(speed);
+    }
+
+    //  Right analog of turnLeft.
+    public void turnRight(double speed, double ratio) {
+        Range.clip(ratio, -1.0, 1.0);
+        leftMotor.setPower(speed);
+        rightMotor.setPower(speed * ratio);
+    }
+
+    public void turnOnSelf (double speed, double angle) {
+        encoderDrive(speed, speed,
+                DRIVEWHEEL_SEPARATION*angle, -DRIVEWHEEL_SEPARATION*angle);
+    }
+
+    /***********************************************************************************
+     * Robot vision members.
+     ***********************************************************************************/
+    public VuforiaLocalizer.Parameters parameters;
+
+    /* Start up Vuforia. */
+    public VuforiaLocalizer initVuforia() {
+        VuforiaLocalizer vuforia;
+        parameters = new VuforiaLocalizer.Parameters(com.qualcomm.ftcrobotcontroller.R.id.cameraMonitorViewId);
+        parameters.vuforiaLicenseKey = "ASkv3nr/////AAAAGYZ9CexhH0K0lDbV090F719DkwXCIXEUmExgnQNDFGjrDrkVJnU7xNhuKHLsC32Pb1jmr+6vp6JtpVKvNmTf28ZYkUphDeajNPCLgGVxLjD6xsfgBayqSO9bfQFeGkrdEgXlP+2oaz234afhWti9Jn8k71mzbQ4W2koX9yBMWz0YLzUWClcasxi6Nty7SUvV+gaq3CzpKVtjKk+2EwV6ibIc0V47LAeB0lDGsGkSzuJ+93/Ulpoj+Lwr/jbI2mu/Bs2W7U9mw73CMxvDix9o1FxyPNablla4W5C5lUDm0j2lW5gsUNOhgvlWKQ+eCu9IBp53WbW5nfNzhXPaDDh/IlBbZuAMIJuMDEHI5PVLKT9L";
+        parameters.cameraDirection = VuforiaLocalizer.CameraDirection.BACK;
+        vuforia = ClassFactory.createVuforiaLocalizer(parameters);
+        return vuforia;
+    }
+
+    public List<VuforiaTrackable> initBeaconImages(VuforiaLocalizer someLocalizer) {
+        /**
+         * Load the data sets for the four beacon images we wish to track. These particular data
+         * sets are stored in the 'assets' part of our application (you'll see them in the Android
+         * Studio 'Project files' view over there on the left of the screen, under FtcRobotController
+         * /src/main).
+         * PDFs for the example "FTC_2016-17", datasets can be found in at
+         * http://www.firstinspires.org/resource-library/ftc/game-and-season-info.
+         */
+        VuforiaTrackables beacons = someLocalizer.loadTrackablesFromAsset("FTC_2016-17");
+        beacons.get(0).setName("Wheels");
+        beacons.get(1).setName("Tools");
+        beacons.get(2).setName("Legos");
+        beacons.get(3).setName("Gears");
+
+        /* Assign locations to those images.
+         * Just plaster all the images onto the middle of the Field, facing the Red Alliance
+         *   Wall (X=0, Y=0). Later, we'll put them onto absolute positions as does the
+         *   sample code ConceptVuforiaNavigation.
+         *
+         * To place an image Target at the origin, facing the Red Audience wall:
+         *   We only need rotate it 90 around the field's X axis to flip it upright, and
+         *   move it up to the level of the phone. We make one matrix to do that, and
+         *   apply it to all the beacon images.
+         */
+
+        OpenGLMatrix imageTargetLocationOnField = OpenGLMatrix
+                .translation(0, 0, (float)146.0) // Image height off floor
+                .multiplied(Orientation.getRotationMatrix(
+                        AxesReference.EXTRINSIC, AxesOrder.XYZ,
+                        AngleUnit.DEGREES, 90, 0, 0));
+        beacons.get(0).setLocation(imageTargetLocationOnField);
+        beacons.get(1).setLocation(imageTargetLocationOnField);
+        beacons.get(2).setLocation(imageTargetLocationOnField);
+        beacons.get(3).setLocation(imageTargetLocationOnField);
+
+        /**
+         * Create a transformation matrix describing where the phone is on the robot. Here, we
+         * put the phone on the front middle of the robot with the screen facing in (see our
+         * choice of BACK camera above) and in portrait mode. This requires no rotation of axes.
+         */
+        OpenGLMatrix phoneLocationOnRobot = OpenGLMatrix
+                .translation(0.0f, 0.0f, 0.0f); // Just locate the phone for now
+
+        /**
+         * Let the trackable listeners we care about know where the phone is. We know that each
+         * listener is a {@link VuforiaTrackableDefaultListener} and can so safely cast because
+         * we have not ourselves installed a listener of a different type.
+         */
+        ((VuforiaTrackableDefaultListener) beacons.get(0).getListener()).setPhoneInformation(phoneLocationOnRobot, parameters.cameraDirection);
+        ((VuforiaTrackableDefaultListener) beacons.get(1).getListener()).setPhoneInformation(phoneLocationOnRobot, parameters.cameraDirection);
+        ((VuforiaTrackableDefaultListener) beacons.get(2).getListener()).setPhoneInformation(phoneLocationOnRobot, parameters.cameraDirection);
+        ((VuforiaTrackableDefaultListener) beacons.get(3).getListener()).setPhoneInformation(phoneLocationOnRobot, parameters.cameraDirection);
+
+        /** Start tracking the beacon image data sets. Typically, we'll see none or one. */
+        beacons.activate();
+        /* For convenience, gather together all the trackable objects in one easily-iterable
+         *   collection */
+        List<VuforiaTrackable> allTrackables = new ArrayList<VuforiaTrackable>();
+        allTrackables.addAll(beacons);
+        return allTrackables;
+    }
+
+    public String findBeaconImage(List<VuforiaTrackable> someImageSet) {
+        String imageName = "nothing";
+        for (VuforiaTrackable trackable : someImageSet) {
+            /**
+             * getUpdatedRobotLocation() will return null if no new information is available since
+             * the last time that call was made, or if the trackable is not currently visible.
+             * getRobotLocation() will return null if the trackable is not currently visible.
+             */
+            if (((VuforiaTrackableDefaultListener) trackable.getListener()).isVisible()) {
+                imageName = trackable.getName();
+                OpenGLMatrix robotLocationTransform =
+                        ((VuforiaTrackableDefaultListener) trackable.getListener()).getUpdatedRobotLocation();
+                if (robotLocationTransform != null) {
+                    lastLocation = robotLocationTransform;
+                    break; // Never interested in more than one image.
+                }
+            }
+        }
+        return imageName;
+    }
+
+    private String stepTowardBeacon(String whichBeacon) {
+        String report = "";
+        String TAG = "Going to beacon";
+        setXYHeading(lastLocation);
+        double targetY = CAMERA_FROM_FRONT; // Millimeters. Stop when camera is in image.
+        double remainingY = knownY - targetY; // Millimeters away from stopping.
+        // Guidance tuning constants
+        final double APPROACH_SPEED = 0.1; // ** May become a tunable variable, slower for
+        // ** smaller abs(X).
+        final double TURNER = 0.35; // Controls sharpness of turns.
+        //  ** It may become a tunable variable, gentler for smaller abs(X).
+        final double APPROACH_WHEEL_DIFFERENCE = TURNER * APPROACH_SPEED; // Steering
+        final double HEADING_CORRECTOR = 3.0; // Controls strength of X correction
+
+        // Angles in radians
+        // knownHeading is zero if camera directly facing plane of the image, independent
+        // of camera position.
+        // Positive if pointing to left of normal to that plane through the camera.
+        Orientation orientation = Orientation.getOrientation(lastLocation,
+                AxesReference.EXTRINSIC, AxesOrder.XYZ, AngleUnit.DEGREES);
+        knownHeading = orientation.thirdAngle;
+
+        // Zero if camera anywhere on normal to image, independent of camera orientation.
+        // Positive if image is left of normal to plane of image, passing through the camera.
+        double imageBearing;
+        // approximation: atan2(y, x) is close to x/y for abs(x) << abs(y).
+        imageBearing = -knownX /knownY;
+        imageBearing *= 180 / Math.PI;
+        double targetHeading = imageBearing * HEADING_CORRECTOR;
+        report += whichBeacon + String.format(" at X, Y: %6.0fmm", knownX) +
+                String.format(", %6.0fmm", knownY);
+        report += String.format("\nImage bearing %6.0f degrees", imageBearing);
+
+        report += String.format("\nRobot heading: %6.0f degrees ", knownHeading);
+
+        // Drive robot like an airplane landing on a runway. We have to be on its long
+        //   axis, and pointed along that axis.
+        // Steer toward this heading, attempting to line up
+        if (knownHeading < targetHeading) {
+            turnLeft(APPROACH_SPEED, 1.0 - TURNER);
+            report += "Turning left to";
+        }
+        if (knownHeading > targetHeading) {
+            turnRight(APPROACH_SPEED, 1.0 - TURNER);
+            report += "Turning right to";
+        }
+        if (knownHeading == targetHeading) {
+            goStraight(APPROACH_SPEED);
+            report += "Keeping straight on";
+        }
+        report += String.format(" heading %6.0f.", targetHeading);
+        report += String.format(" %6.0fmm to go.", remainingY);
+        if (remainingY < 0) {
+            // Just stop, and let driver contemplate the situation.
+            report += " I'm too close. Stopping.";
+            leftMotor.setPower(0);
+            rightMotor.setPower(0);
+        }
+        RobotLog.a (report);
+        return report;
+    }
+
+    public void goToBeacon (){
+        do {
+            String field = "I see";
+            String imageName = "nothing";
+            String report = "";
+
+            //  Find an image, and get robot's location relative to it.
+            imageName = findBeaconImage(allTrackables);
+
+            if (! imageName.equals("nothing")) {
+                //  Go toward detected beacon image.
+                report = stepTowardBeacon(imageName);
+                if (knownY < CAMERA_FROM_FRONT) {
+                    report += "Arrived. Stopping.";
+                    leftMotor.setPower(0);
+                    rightMotor.setPower(0);
+                    currentOpMode.telemetry.addData(field, report);
+                    currentOpMode.telemetry.update();
+                    break;
+                }
+            } else {
+                report = "nothing. Stopping.";
+                // Stop
+                // ** Maybe turn robot toward last image bearing, hoping to pick it up again
+                leftMotor.setPower(0);
+                rightMotor.setPower(0);
+            }
+
+            currentOpMode.telemetry.addData(field, report);
+            currentOpMode.telemetry.update();
+        } while (true);
+    }
+
+/***********************************************************************************
+ *          Robot navigation members.
+ ***********************************************************************************/
+
+    //  Set robot heading and coordinates from some location object.
+    public void setXYHeading(OpenGLMatrix aLocation){
+        VectorF translation = aLocation.getTranslation();
+        knownX = -translation.get(0);
+        knownY = -translation.get(1);
+        Orientation orientation = Orientation.getOrientation(lastLocation,
+                AxesReference.EXTRINSIC, AxesOrder.XYZ, AngleUnit.DEGREES);
+        knownHeading = orientation.thirdAngle;
+    }
+}

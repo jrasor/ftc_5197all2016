@@ -1,0 +1,10 @@
+To do for Interleague
+
+Develop Autonomous opmodes in package Sliderbot.
+  SliderbotBlueAuto
+When done, import these opmodes into c1c2interleague.
+
+Improve class Sliderbot
+  Properly initialize drive train
+  Better transition between driving segments
+  Tune stepTowardBeaconWestCoast method

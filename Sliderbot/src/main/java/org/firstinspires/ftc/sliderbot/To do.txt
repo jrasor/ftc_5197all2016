@@ -1,0 +1,16 @@
+To do for Interleague
+
+Develop Autonomous opmodes in package Sliderbot.
+  RedPushPark
+  BluePushPark
+  RedGetBeacons
+  BlueGetBeacons
+When done, import these opmodes into package c1c2interleague.
+
+Develop Teleop mode
+  temper gamepad stick response
+  develop button macros:
+    A: approach beacon
+    B: back away from beacon
+    Maybe X: go up to Corner Vortex and shoot
+When done, import resulting TeleOp mode into c1c2interleague.

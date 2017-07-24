@@ -1,0 +1,160 @@
+package org.firstinspires.ftc.sliderbot;
+
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.I2cAddr;
+import com.qualcomm.robotcore.hardware.I2cDevice;
+import com.qualcomm.robotcore.hardware.I2cDeviceSynch;
+import com.qualcomm.robotcore.hardware.I2cDeviceSynchImpl;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.vuforia.ObjectTracker;
+import com.vuforia.TrackerManager;
+
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaLocalizer;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaTrackable;
+import org.lasarobotics.vision.android.Cameras;
+import org.lasarobotics.vision.ftc.resq.Beacon;
+import org.lasarobotics.vision.opmode.LinearVisionOpMode;
+import org.lasarobotics.vision.opmode.VisionOpMode;
+import org.lasarobotics.vision.opmode.extensions.CameraControlExtension;
+import org.lasarobotics.vision.util.ScreenOrientation;
+import org.opencv.core.Size;
+
+/**
+ *
+ *  JMR 1/4/17 v. 0.1 go to Gears beacon, then turn right 90 degrees to present
+ *    sensors and pusher to beacon buttons.
+ *    ** 1/13/17 Color sensor seems to malfunction.
+ */
+
+@Autonomous(name="Sliderbot Red Auto Beacons", group="Sliderbot")
+//@Disabled
+public class SliderbotAutoRedBeacons extends LinearVisionOpMode {
+
+    /* Declare OpMode members. */
+    //public VVField field = new VVField(this);
+    public Sliderbot robot = new Sliderbot(this);
+
+    /*
+    byte[] colorCcache;
+    I2cDevice colorC;
+    I2cDeviceSynch colorCreader;
+    boolean bCurrState = false;
+    boolean bPrevState = false;
+    boolean LEDState = false;     //Tracks the mode of the color sensor; Active = true, Passive = false
+
+    */
+    boolean seeColor = false;
+    static final double MAX_POS     =  1.0;     // Fully extended
+    static final double MIN_POS     =  0.0;     // Fully retracted
+
+    Servo servo = null;
+    @Override
+    public void runOpMode() throws InterruptedException {
+        robot.initDrive(hardwareMap);
+
+        telemetry.addData("Status", "Initialized");
+
+        //the below lines set up the configuration file
+        //servo = hardwareMap.servo.get("Servo1");
+        //initBeaconPusher();
+        // Set up Color Sensor
+        /*
+        colorC = hardwareMap.i2cDevice.get("color");
+        colorCreader = new I2cDeviceSynchImpl(colorC, I2cAddr.create8bit(0x3c), false);
+        colorCreader.engage();
+        */
+        //  Robot initialization has set this not to use encoders.
+        robot.initEncodedDrive();
+
+        //  Get an initialized VuforiaLocalizer.
+        VuforiaLocalizer vuforia = robot.initVuforia();
+        //  Get the beacon images trackable and located.
+        robot.allTrackables = robot.initBeaconImages(vuforia);
+        robot.beacons.deactivate(); // because OpenCV needs the camera first.
+
+        //   Initialize OpenCV.
+        waitForVisionStart();
+
+        // Wait for the game to start (driver presses PLAY)
+        waitForStart();
+
+        // Color Sensor ACTIVE or PASSIVE
+/*
+        if(LEDState)
+        {   //Set the mode of the color sensor using LEDState
+            colorCreader.write8(3, 0);
+        }
+        else
+        {
+            colorCreader.write8(3, 1);
+        }
+*/
+        jobRunScript();
+    }
+
+    // Step through each leg of the path,
+    // Note: Reverse movement is obtained by setting a negative distance (not speed)
+    public void jobRunScript(){
+
+        /**
+         * See Basic Vision Sample for tips on setting these options.
+         **/
+
+        this.setCamera(Cameras.PRIMARY);
+        this.setFrameSize(new Size(900, 900));
+        enableExtension(VisionOpMode.Extensions.BEACON);         //Beacon detection
+        enableExtension(VisionOpMode.Extensions.ROTATION);       //Automatic screen rotation correction
+        enableExtension(VisionOpMode.Extensions.CAMERA_CONTROL); //Manual camera control
+        beacon.setAnalysisMethod(Beacon.AnalysisMethod.FAST);
+
+        // Color tolerances: 0 is default, -1 is minimum and 1 is maximum.
+        beacon.setColorToleranceRed(0);
+        beacon.setColorToleranceBlue(0);
+        rotation.setIsUsingSecondaryCamera(false);
+        rotation.disableAutoRotate();
+        rotation.setActivityOrientationFixed(ScreenOrientation.PORTRAIT);
+        cameraControl.setColorTemperature(CameraControlExtension.ColorTemperature.AUTO);
+        cameraControl.setAutoExposureCompensation();
+  
+        robot.initEncodedDrive();
+        // Place robot's left edge 4' from left corner, or exactly two tiles, angled left
+        //   to point to end of white stripe.
+        // Run straight forward to put middle of robot near there. Front of robot should
+        //   be about 3 tiles off Red Alliance wall.
+        robot.driveStraight(0.4, 72.0);
+        // ... approximately turn to beacon...
+        robot.turnAngle(0.2, -Math.PI/6);
+        // ** OpenCV color decision here
+        // ... go into it with Vuforia vision guidance...
+        robot.beacons.activate();
+        robot.goToBeacon();
+
+        // ** .... continue Autonomous beacon capture plan here.
+        /*
+        while(!seeColor) {
+            colorCcache = colorCreader.read(0x04, 1);
+
+            //display values
+            telemetry.addData("2 #C", colorCcache[0] & 0xFF);
+            telemetry.addData("LED", (LEDState ? "On" : "Off"));
+            telemetry.update();
+            if ((colorCcache[0] & 0xFF) == 10)
+            {
+                seeColor = true;
+                break;
+            }
+            else
+            {
+                robot.driveStraight(robot.STRAIGHT_SPEED,1.0);
+            }
+        }
+        */
+        //servo.setPosition(MAX_POS);
+        //  Go after another beacon.
+        //  Post beacon capture segments here: push park, shoot, maybe get in position
+        //    to recapture missed beacons in TeleOp.
+        robot.stopDriveMotors();
+    }
+}

@@ -1,0 +1,27 @@
+To do for Meet 3
+
+Convert methods of Sliderbot class to use mecanum wheels. Do this in
+package Sliderbot. Most important:
+  goToBeacon
+  stepTowardBeacon
+When done, import Sliderbot class into gameday3.
+
+Develop Autonomous opmodes in package Sliderbot.
+  RedPushPark
+  BluePushPark
+  RedGetBeacons
+  BlueGetBeacons
+When done, import these opmodes into gameday3.
+
+Improve opmode justDrive
+  temper gamepad stick response
+  add sweeper code
+  add pusher code
+  develop button macros:
+    A: approach beacon
+    B: back away from beacon
+When done, import resulting TeleOp mode into gameday3.
+
+Develop for InterLeague:
+  RedShootParticles
+  BlueShootParticles

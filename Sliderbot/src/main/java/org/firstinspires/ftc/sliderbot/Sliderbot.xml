@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<Robot type="FirstInspires-FTC">
+    <MotorController name="Motor Controller 2" serialNumber="A7008L93">
+        <Motor name="rightFrontMotor" port="1" />
+        <Motor name="leftFrontMotor" port="2" />
+    </MotorController>
+    <ServoController name="Servo Controller 1" serialNumber="AL026DM5">
+        <Servo name="buttonPush" port="2" />
+    </ServoController>
+    <DeviceInterfaceModule name="Device Interface Module 1" serialNumber="AI041T8B">
+        <ColorSensor name="color" port="0" />
+    </DeviceInterfaceModule>
+    <MotorController name="Motor Controller 4" serialNumber="AL00VH6B">
+        <Motor name="sweeperMotor" port="1" />
+    </MotorController>
+    <MotorController name="Motor Controller 3" serialNumber="A7008L92">
+        <Motor name="rightRearMotor" port="1" />
+        <Motor name="leftRearMotor" port="2" />
+    </MotorController>
+</Robot>
